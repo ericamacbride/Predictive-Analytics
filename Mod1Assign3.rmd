@@ -1,0 +1,64 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+## Erica MacBride
+### BAN 502 Predictive
+### Dr. Hill
+
+#### Task 1
+```{r}
+#Tidyverse is already installed on my computer, no need to run install packages
+library(tidyverse)
+```
+#### Task 2
+```{r}
+diamonddata = diamonds
+#view(diamonddata)
+```
+There are 10 columns and 53,940 rows in this data set.  
+
+#### Task 3
+```{r}
+ggplot(diamonddata, aes(x= carat, y=price)) + geom_point()
+```
+The bigger the carat size, the more expensive the diamond is.  
+
+#### Task 4
+```{r}
+ggplot(diamonddata, aes(x= carat, y=price, color = cut)) + geom_point()
+```
+You can buy a fair cut diamond that is much bigger in carat size for the same price you could buy an ideal cut 2 carat diamond. The better the cut, the smaller the carat size due to high prices. The worse cut diamonds can be bought at a much bigger carat size and typically a lower price compared to nicer cuts.  
+
+#### Task 5
+```{r}
+ggplot(diamonddata, aes(x= carat, y=price, color = cut)) + geom_point() + facet_wrap(~ color)
+```
+The nicer the color the more expensive the diamond. The better the cut, the more expensive the diamond. You can buy a larger carat thats a less nice color for cheaper than you could buy an ideal and very good colored diamond.  
+
+#### Task 6
+```{r}
+inventory <- read_csv("InventoryData.csv")
+#summary(inventory)
+#str(inventory)
+```
+#### Task 7
+```{r}
+inventoryA <- inventory %>% filter(Supplier == "A")
+```
+3695 Rows are in this data frame.  
+
+#### Task 8
+```{r}
+inventoryA = mutate(inventoryA, OnHandRatio = `On Hand` / `Annual Demand`)
+```
+This line of code creates a new column titled On Hand Ration and is formulated by dividing the On Hand variable over the Annual Demand variable.  
+
+#### Task 9
+```{r}
+avg_cost <- inventory %>% group_by(`Item SKU`) %>% summarise(SKUAvgCost = mean(`Cost per Unit ($)`), .groups = 'drop')
+```
+
+#### Task 10
+Given my experience in R, I have not found a particular topic too challenging. My main concern is remembering what line of code does what and troubleshooting when I get an error.  

@@ -1,0 +1,189 @@
+### Erica MacBride & Hailey Hendriks
+### Dr. Hill, BAN 502
+### Phase 1 Project
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(glmnet) 
+library(GGally)
+library(ggcorrplot)
+library(lmtest)
+library(car)
+library(lubridate)
+library(caret)
+library(gridExtra) 
+library(vip) 
+library(ranger)
+
+```
+```{r}
+ames_student <- read_csv("ames_student.csv")
+ames_student = ames_student %>% mutate_if(is.character, as.factor)
+summary(ames_student)
+
+```
+```{r}
+ames = ames_student %>% dplyr::select("Neighborhood", "Overall_Qual", "Bldg_Type", "House_Style", "Year_Built", "Total_Bsmt_SF", "First_Flr_SF", "Full_Bath",  "Year_Remod_Add", "TotRms_AbvGrd", "Above_Median")
+```
+
+
+## Data Exploration
+```{r}
+ggplot(ames, aes(x=Above_Median)) + geom_histogram(stat="count") + theme_bw()
+```
+The dataset looks pretty balanced between the amount of houses sold above the median and below. 
+
+
+```{r}
+ggcorr(ames, label = "TRUE", label_round = 2) 
+```
+All variables are positively correlated with each other. 
+
+```{r}
+ggpairs(ames, columns = c("Overall_Qual", "Bldg_Type", "House_Style", "Year_Built","Above_Median"))
+ggpairs(ames, columns = c("Total_Bsmt_SF", "First_Flr_SF", "Full_Bath",  "Year_Remod_Add", "TotRms_AbvGrd", "Above_Median"))
+```
+```{r}
+ggplot(ames,aes(x=Above_Median, fill=Neighborhood)) + geom_bar(position= "fill") + 
+  theme_bw()
+table(ames$Neighborhood)
+```
+From this graph it looks like the Neighborhoods in pink, like Veeker, Timberland, and Stone Brooke typically sell houses above the median range. Similar with the dark blue neighborhoods like Northridge and Northridge Heights This graph is not great as the colors run together making it difficult to see a fine line between which neighborhoods typically sell above the median price. We believe this could show the presence of outliers in neighborhoods. 
+
+```{r}
+ggplot(ames,aes(x=Above_Median, fill=Overall_Qual)) + geom_bar(position= "fill") + 
+  theme_bw()
+```
+Overall Quality does not seem to be the best predictor has a large amount of houses that the quality was above average were not sold above the median price and the other half were. Yet, houses with Excellent and Very Good quality were sold above median. A large amount of houses with average quality were sold below the median as well as below average. While this still tells us something, we are still questioning how well Overall Quality predicts whether a house will be sold above the median.
+
+
+```{r}
+ggplot(ames,aes(x=Above_Median, fill=Bldg_Type)) + geom_bar(position= "fill") + 
+  theme_bw()
+```
+More one family type homes sold over the median price. A large amount also sold below the median. Typically Townhouse end units are sold above the median. Duplexes are more likely to be sold below the median.
+
+```{r}
+ggplot(ames,aes(x=Above_Median, fill=House_Style)) + geom_bar(position= "fill") + 
+  theme_bw()
+```
+More two story homes were sold above the median than below. One story were also very similar in whether they were sold above or below the median. One and half story houses were usually sold below the median. 
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=Year_Built)) + geom_boxplot()
+```
+Newer houses were usually sold above the median. Looks the median is around the year 2000. It is important to mention that there are quite a few outliers that houses that were sold above the median were very old.
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=Total_Bsmt_SF)) + geom_boxplot()
+```
+The more the total square footage of the basement, the more likely the house will sell above the median price. 
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=First_Flr_SF)) + geom_boxplot()
+```
+Houses with a large first floor square footage were usually sold above the median price.
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=Full_Bath)) + geom_boxplot()
+```
+Not a good visualization at all. The only thing we can take from this is if a house has 4 baths then it sold above the median price. The average house that sold over median price has at least 2 baths while those who sold below the median typically had one.
+
+
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=Year_Remod_Add)) + geom_boxplot()
+```
+
+The more recently the house was remodeled the more likely the house sold above the median, must take into account the outliers as well.
+
+```{r}
+ggplot(ames,aes(x=Above_Median,y=TotRms_AbvGrd)) + geom_boxplot()
+```
+The more rooms, the more likely the house sold above the median.
+
+### Creating a Random Forest
+```{r}
+set.seed(1234) 
+ames_split = initial_split(ames_student, prop = 0.7, strata = Above_Median) #70% in training
+train = training(ames_split)
+test = testing(ames_split)
+
+```
+
+```{r}
+set.seed(123)
+rf_folds = vfold_cv(train, v=5)
+ames_recipe = recipe(Above_Median ~., train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 50) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+ames_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(ames_recipe)
+
+rf_grid = grid_regular(
+  mtry(range = c(2,8)),
+  min_n(range = c(2,20)),
+  levels = 10
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  ames_wflow,
+  resamples = rf_folds,
+  grid = rf_grid 
+)
+
+```
+
+```{r}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  ames_wflow,
+  best_rf
+)
+
+final_rf
+```
+```{r}
+final_rf_fit = fit(final_rf, train)
+final_rf_fit %>% pull_workflow_fit() %>% vip(geom = "point")
+
+```
+The random forest shows that some variables that hold the highest level of importance is Gr_Liv_Area which is above grade living area square feet. Garagae_Cars for the size of garage in car capacity. Year built which we included in our first try. We were suprised to see that neighborhood did not have a higher level of importance.
+
+### Training Set
+```{r}
+trainpredrf = predict(final_rf_fit, train)
+head(trainpredrf)
+```
+
+```{r}
+confusionMatrix(trainpredrf$.pred_class, train$Above_Median, 
+                positive = "Yes")
+
+```
+98% Accuracy.
+
+### Testing Set
+```{r}
+testpredrf = predict(final_rf_fit, test)
+head(testpredrf)
+
+```
+
+```{r}
+confusionMatrix(testpredrf$.pred_class, test$Above_Median, 
+                positive = "Yes")
+
+```
+We notice a drop in accuracy by 6%.
+
+

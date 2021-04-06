@@ -1,0 +1,333 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+### Erica MacBride & Hailey Hendriks
+### Dr.Hill BAN 502
+### Project Phase 2
+
+##Loading Libraries
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(glmnet) 
+library(GGally)
+library(ggcorrplot)
+library(lmtest)
+library(car)
+library(lubridate)
+library(caret)
+library(gridExtra) 
+library(vip) 
+library(ranger)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(RColorBrewer)
+library(e1071)
+library(ROCR)
+```
+##Loading/Cleaning Data
+```{r}
+ames_student <- read_csv("ames_student.csv")
+ames_student = ames_student %>% mutate_if(is.character, as.factor)
+```
+## Building a Random Forest
+```{r}
+set.seed(1234) 
+ames_split = initial_split(ames_student, prop = 0.7, strata = Above_Median)
+train = training(ames_split)
+test = testing(ames_split)
+```
+
+```{r}
+set.seed(123)
+rf_folds = vfold_cv(train, v=5)
+ames_recipe = recipe(Above_Median ~ Gr_Liv_Area + Year_Built + Garage_Cars + First_Flr_SF + Garage_Area + Total_Bsmt_SF, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 50) %>% 
+  set_engine("ranger", importance = "permutation") %>% 
+  set_mode("classification")
+
+ames_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(ames_recipe)
+
+rf_grid = grid_regular(
+  mtry(range = c(2,8)),
+  min_n(range = c(2,20)),
+  levels = 10
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  ames_wflow,
+  resamples = rf_folds,
+  grid = rf_grid 
+)
+```
+```{r}
+rf_res_tuned %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+```
+```{r}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  ames_wflow,
+  best_rf
+)
+
+final_rf
+
+```
+```{r}
+final_rf_fit = fit(final_rf, train)
+final_rf_fit %>% pull_workflow_fit() %>% vip(geom = "point")
+```
+### Training Set
+```{r}
+trainpredrf = predict(final_rf_fit, train)
+head(trainpredrf)
+```
+```{r}
+confusionMatrix(trainpredrf$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+## Testing Set
+```{r}
+testpredrf = predict(final_rf_fit, test)
+#head(testpredrf)
+```
+
+```{r}
+confusionMatrix(testpredrf$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+
+### Creating a Classification Tree
+```{r}
+set.seed(12345) 
+ames_split2 = initial_split(ames_student, prob = 0.70, strata = Above_Median)
+train2 = training(ames_split2)
+test2 = testing(ames_split2)
+```
+
+```{r}
+ames_recipe2 = recipe(Above_Median ~ Gr_Liv_Area + Year_Built + Garage_Cars + First_Flr_SF + Garage_Area + Total_Bsmt_SF, train2)
+
+tree_model = decision_tree() %>% 
+  set_engine("rpart", model = TRUE) %>% 
+  set_mode("classification")
+
+ames_wflow2 = 
+  workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(ames_recipe2)
+
+ames_fit2 = fit(ames_wflow2, train2)
+```
+
+```{r}
+tree = ames_fit2 %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+```
+
+```{r}
+fancyRpartPlot(tree,tweak = 1)
+```
+```{r}
+ames_fit2$fit$fit$fit$cptable
+```
+```{r}
+set.seed(123)
+folds = vfold_cv(train2, v = 5)
+```
+
+```{r}
+ames_recipe2 = recipe(Above_Median ~ Gr_Liv_Area + Year_Built + Garage_Cars + First_Flr_SF + Garage_Area + Total_Bsmt_SF, train2) %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_model = decision_tree(cost_complexity = tune()) %>% 
+  set_engine("rpart", model = TRUE) %>% 
+  set_mode("classification")
+
+tree_grid = grid_regular(cost_complexity(),
+                          levels = 25) 
+
+parole_wflow = 
+  workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(ames_recipe2)
+
+tree_res = 
+  ames_wflow2 %>% 
+  tune_grid(
+    resamples = folds,
+    grid = tree_grid
+    )
+
+tree_res
+```
+
+```{r}
+best_tree = tree_res %>%
+  select_best("accuracy")
+
+best_tree
+```
+
+```{r}
+final_wf = 
+  ames_wflow2 %>% 
+  finalize_workflow(best_tree)
+```
+
+```{r}
+final_fit = fit(final_wf, train)
+
+tree = final_fit %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+```
+
+### Prediciting on Training Set
+```{r}
+treepred_train = predict(final_fit, train2, type = "class")
+#head(treepred_train)
+```
+
+```{r}
+confusionMatrix(treepred_train$.pred_class,train2$Above_Median,positive="Yes")
+```
+### Predictions on Testing
+```{r}
+treepred_test = predict(final_fit, test2, type = "class")
+#head(treepred_test)
+```
+
+```{r}
+confusionMatrix(treepred_test$.pred_class,test2$Above_Median,positive="Yes")
+```
+
+### Creating a Logistic Regression
+```{r}
+set.seed(12345) 
+ames_split3 = initial_split(ames_student, prob = 0.70, strata = Above_Median)
+train3 = training(ames_split3)
+test3 = testing(ames_split3)
+```
+
+```{r}
+ames_model3 = 
+  logistic_reg(mode = "classification") %>% #note the use of logistic_reg and mode = "classification"
+  set_engine("glm") #standard logistic regression engine is glm
+
+ames_recipe3 = recipe(Above_Median ~ Gr_Liv_Area + Year_Built + Garage_Cars + First_Flr_SF, train3)
+
+logreg_wf = workflow() %>%
+  add_recipe(ames_recipe3) %>% 
+  add_model(ames_model3)
+
+ames_fit3 = fit(logreg_wf, train3)
+```
+
+```{r}
+#summary(ames_fit3$fit$fit$fit)
+```
+### Predictions on Train
+```{r}
+predictions1 = predict(ames_fit3, train3, type="prob")[2] 
+#head(predictions)
+```
+```{r}
+ROCRpred = prediction(predictions1, train3$Above_Median) 
+```
+
+```{r}
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+```
+```{r}
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+```{r}
+t1 = table(train3$Above_Median,predictions1 > 0.6)
+t1
+```
+```{r}
+(t1[1,1]+t1[2,2])/nrow(train3)
+```
+
+### Predictions on Testing
+```{r}
+predictions2 = predict(ames_fit3, test3, type="prob")[2] 
+ROCRpred = prediction(predictions2, test3$Above_Median) 
+
+
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+as.numeric(performance(ROCRpred, "auc")@y.values)
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+```{r}
+t2 = table(test3$Above_Median,predictions2 > 0.6)
+(t2[1,1]+t2[2,2])/nrow(test3)
+```
+
+
+### Reading in Competition Dataset
+```{r}
+ames_competition <- read_csv("ames_competition.csv")
+ames_competition = ames_competition %>% mutate_if(is.character, as.factor)
+```
+```{r}
+competitionprediction = predict(final_fit, ames_competition)
+```
+
+
+
+```{r}
+kaggle = ames_competition %>% select(X1) 
+kaggle = bind_cols(kaggle, competitionprediction)
+kaggle
+```
+```{r}
+#write.csv(kaggle, "kaggle_submit.csv", row.names=FALSE)
+```
+

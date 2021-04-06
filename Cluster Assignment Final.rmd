@@ -1,0 +1,158 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+### Erica MacBride
+## Dr. Hill, BAN 502
+## Cluster Assignment
+
+---
+output:
+  word_document: default
+  html_document: default
+---
+```{r}
+library(tidymodels)
+library(tidyverse)
+```
+```{r}
+trucks <- read_csv("trucks.csv")
+```
+
+```{r}
+ggplot(trucks, aes(Distance, Speeding)) + geom_point()
+```
+There does seem to be natural clustering for speeding. When the distance is between 25 to 75 miles there tends to be a more concentrated cluster of speeding. Yet when the distance reaches over 150 then the number of speeding tends to distance itself out with but also has a concentrated cluster around 150-200.
+### Task 2
+```{r}
+kmeans_recipe = recipe(~ Speeding + Distance, trucks) 
+
+trucks_dummy = kmeans_recipe %>% 
+  step_scale(all_numeric()) %>%
+  step_center(all_numeric()) 
+
+trucks_dummy = prep(trucks_dummy, trucks) #prepares the recipe
+
+trucks_cleaned = bake(trucks_dummy, trucks)
+```
+
+### Task 3
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 2) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts
+```
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+
+```
+
+```{r}
+p1 = 
+  ggplot(assignments, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p1
+```
+The clusters are distributed well between 1 and 2 with no outliers. 
+
+### Task 4
+```{r}
+set.seed(412)
+clusts = 
+  tibble(k = 1:8) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts
+```
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+
+```{r}
+p2 = 
+  ggplot(assignments, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p2
+```
+
+### Task 5
+```{r}
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  geom_point()
+```
+4 appears to be the best because this is where you see the bend or elbow in the curve.
+
+### Task 6
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 4) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts
+```
+
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+
+```{r}
+p3 = 
+  ggplot(assignments, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p3
+```
+This cluster is much better than any other. It clearly defines the clusters into 4 groups with out any outlier variables mixed in. 

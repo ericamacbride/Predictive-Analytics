@@ -1,0 +1,268 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+### Erica MacBride
+## Dr. Hill, BAN 502
+## Classification Trees
+
+###Installing Packages
+```{r}
+#install.packages("rpart.plot")
+#install.packages("rattle")
+#install.packages("RColorBrewer")
+```
+
+### Library Packages
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(RColorBrewer)
+```
+### Loading and Cleaning Data
+```{r}
+parole <- read_csv("parole (1).csv")
+
+parole = parole %>% mutate(male = as_factor(male)) %>% 
+  mutate(male = fct_recode(male, "Female" = "0", "Male" = "1" ))
+
+parole = parole %>% mutate(race = as_factor(race)) %>% 
+  mutate(race = fct_recode(race, "Other" = "2", "White" = "1" ))
+
+parole = parole %>% mutate(state = as_factor(state)) %>% 
+  mutate(state = fct_recode(state, "Kentucky" = "2", "Louisiana" = "3", "Virginia" = "4", "Other"= "1" ))
+
+parole = parole %>% mutate(crime = as_factor(crime)) %>% 
+  mutate(crime = fct_recode(crime, "larceny" = "2", "drug-related crime" = "3", "driving-related crime"="4", "other crime" = "1" ))
+
+parole = parole %>% mutate(multiple.offenses = as_factor(multiple.offenses)) %>% 
+  mutate(multiple.offenses = fct_recode(multiple.offenses, "incarcerated-multiple" = "1", "otherwise" = "0" ))
+
+parole = parole %>% mutate(violator = as_factor(violator)) %>% 
+  mutate(violator = fct_recode(violator, "Violated" = "1", "Completed w no Violation" = "0" ))
+
+```
+
+
+### Task 1
+```{r}
+set.seed(12345) 
+parole_split = initial_split(parole, prob = 0.70, strata = violator)
+train = training(parole_split)
+test = testing(parole_split)
+
+```
+
+### Task 2
+```{r}
+parole_recipe = recipe(violator ~ ., train)
+
+tree_model = decision_tree() %>% 
+  set_engine("rpart", model = TRUE) %>% 
+  set_mode("classification")
+
+parole_wflow = 
+  workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(parole_recipe)
+
+parole_fit = fit(parole_wflow, train)
+```
+
+### Task 3
+```{r}
+tree = parole_fit %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+```
+
+```{r}
+fancyRpartPlot(tree,tweak = 3)
+```
+The state is not other, kentucky or virginia, so no, Louisiana, yes to multiple offenses, less than 13 years, time served is less than 6.1 years, the parolee is less than 41 years so he falls into the completed with no violation.  
+
+
+### Task 4
+```{r}
+parole_fit$fit$fit$fit$cptable
+```
+The optimal CP is .01, the tree from task 2 is associated with this optimal cp as it has 14 splits.  
+
+### Task 5
+```{r}
+set.seed(123)
+folds = vfold_cv(train, v = 5)
+```
+```{r}
+parole_recipe = recipe(violator ~., train) %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_model = decision_tree(cost_complexity = tune()) %>% 
+  set_engine("rpart", model = TRUE) %>% #don't forget the model = TRUE flag
+  set_mode("classification")
+
+tree_grid = grid_regular(cost_complexity(),
+                          levels = 25) #try 25 sensible values for cp
+
+parole_wflow = 
+  workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(parole_recipe)
+
+tree_res = 
+  parole_wflow %>% 
+  tune_grid(
+    resamples = folds,
+    grid = tree_grid
+    )
+
+tree_res
+```
+```{r}
+tree_res %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) 
+```
+```{r}
+best_tree = tree_res %>%
+  select_best("accuracy")
+
+best_tree
+```
+
+### Task 6
+The optimal accuracy is a .1 value.  
+
+
+### Task 7
+```{r}
+final_wf = 
+  parole_wflow %>% 
+  finalize_workflow(best_tree)
+```
+
+```{r}
+final_fit = fit(final_wf, train)
+
+tree = final_fit %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+
+#fancyRpartPlot(tree, tweak = 1.5)
+```
+### Task 8
+
+```{r}
+448/507
+```
+88%
+
+
+
+### Task 9
+```{r}
+blood <- read_csv("Blood.csv")
+blood = blood %>% mutate(DonatedMarch = as_factor(DonatedMarch)) %>% 
+  mutate(DonatedMarch = fct_recode(DonatedMarch, "No" = "0", "Yes" = "1" ))
+#summary(blood)
+
+```
+```{r}
+set.seed(1234) 
+blood_split = initial_split(blood, prop = 0.70, strata = DonatedMarch)
+train2 = training(blood_split)
+test2 = testing(blood_split)
+
+```
+
+```{r}
+set.seed(1234)
+folds = vfold_cv(train2, v = 5)
+```
+
+```{r}
+blood_recipe = recipe(DonatedMarch ~., train2) %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_model2 = decision_tree(cost_complexity = tune()) %>% 
+  set_engine("rpart", model = TRUE) %>% #don't forget the model = TRUE flag
+  set_mode("classification")
+
+tree_grid2 = grid_regular(cost_complexity(),
+                          levels = 25) #try 25 sensible values for cp
+
+blood_wflow = 
+  workflow() %>% 
+  add_model(tree_model2) %>% 
+  add_recipe(blood_recipe)
+
+tree_res2 = 
+  blood_wflow %>% 
+  tune_grid(
+    resamples = folds,
+    grid = tree_grid2
+    )
+
+tree_res2
+```
+```{r}
+tree_res2 %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) 
+```
+Somewhere between .015 to .019 looks like the most optimal cp value.
+```{r}
+best_tree2 = tree_res2 %>%
+  select_best("accuracy")
+
+best_tree2
+```
+ 
+### Task 10
+```{r}
+final_wf2 = 
+  blood_wflow %>% 
+  finalize_workflow(best_tree2)
+```
+```{r}
+final_fit2 = fit(final_wf2, train2)
+
+tree2 = final_fit2 %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+
+fancyRpartPlot(tree2, tweak = 1.5) 
+```
+### Task 11
+Predicting on the training set
+```{r}
+treepred_train = predict(final_fit2, train2, type = "class")
+head(treepred_train)
+```
+
+
+```{r}
+confusionMatrix(treepred_train$.pred_class,train2$DonatedMarch,positive="Yes")
+```
+
+
+```{r}
+treepred_test = predict(final_fit2, test2, type = "class")
+head(treepred_test)
+```
+
+```{r}
+confusionMatrix(treepred_test$.pred_class,test2$DonatedMarch,positive="Yes")
+```
+The training and testing both improved in accuracy. The improvement was not large, but overall performance is good.

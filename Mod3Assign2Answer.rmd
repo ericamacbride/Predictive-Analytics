@@ -1,0 +1,243 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+## Erica MacBride
+## Dr. Hill, BAN 502
+## Classification with Logistic Regression
+
+```{r}
+#install.packages("e1071")
+#install.packages("ROCR")
+```
+### Loading Packages
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(e1071)
+library(ROCR)
+parole <- read_csv("parole.csv")
+```
+### Converting/Rename
+```{r}
+parole = parole %>% mutate(male = as_factor(male)) %>% 
+  mutate(male = fct_recode(male, "Female" = "0", "Male" = "1" ))
+
+parole = parole %>% mutate(race = as_factor(race)) %>% 
+  mutate(race = fct_recode(race, "Other" = "2", "White" = "1" ))
+
+parole = parole %>% mutate(state = as_factor(state)) %>% 
+  mutate(state = fct_recode(state, "Kentucky" = "2", "Louisiana" = "3", "Virginia" = "4", "Other"= "1" ))
+
+parole = parole %>% mutate(crime = as_factor(crime)) %>% 
+  mutate(crime = fct_recode(crime, "larceny" = "2", "drug-related crime" = "3", "driving-related crime"="4", "other crime" = "1" ))
+
+parole = parole %>% mutate(multiple.offenses = as_factor(multiple.offenses)) %>% 
+  mutate(multiple.offenses = fct_recode(multiple.offenses, "incarcerated-multiple" = "1", "otherwise" = "0" ))
+
+parole = parole %>% mutate(violator = as_factor(violator)) %>% 
+  mutate(violator = fct_recode(violator, "Violated" = "1", "Completed w no Violation" = "0" ))
+```
+### Task 1
+```{r}
+set.seed(12345) 
+parole_split = initial_split(parole, prob = 0.70, strata = violator)
+train = training(parole_split)
+test = testing(parole_split)
+```
+
+
+### Task 2 Visualizing Variables
+```{r}
+ggplot(train,aes(x=violator, fill=male)) + geom_bar(position= "fill") + 
+  theme_bw()
+```
+This does not tell us much, I can tell that the dataset is unbalanced and there are a lot more men in both categories than there are females.   
+
+
+```{r}
+ggplot(train,aes(x=violator, fill=race)) + geom_bar(position= "fill") + 
+  theme_bw()
+```
+This also does not tell us much. I can see that race is other during violated and race there is a higher count of white parolees that completed with no violation.   
+
+```{r}
+ggplot(train,aes(x=violator,y=age)) + geom_boxplot()
+```
+From this plot I can see that older people tend to complete parole with no violation. Yet the median age is not too different. Once again it is hard to tell whether age is a good predictor variable.  
+
+```{r}
+ggplot(train,aes(x=violator, fill=state)) + geom_bar(position= "fill") + 
+  theme_bw()
+t1 = table(train$violator,train$state)
+prop.table(t1, margin = 2)
+```
+From the table, parolees in the State of Louisiana tend to violate their parole more commonly then any other state.   
+
+```{r}
+ggplot(train,aes(x=violator, fill=crime)) + geom_bar(position= "fill") + 
+  theme_bw()
+t2 = table(train$violator,train$crime)
+prop.table(t2, margin = 2)
+```
+From the table there is not much difference between the type of crime and whether or not the parolee violated their parole.   
+
+```{r}
+ggplot(train,aes(x=violator, fill=multiple.offenses)) + geom_bar(position= "fill") + 
+  theme_bw()
+t3 = table(train$violator,train$multiple.offenses)
+prop.table(t3, margin = 2)
+```
+While those who were not incarcerated multiples times are more likely to complete parole without violation, the difference is very small and does not tell us much.   
+
+After viewing the variables, I believe that age,male, and race would be most predictive of whether or not they violated parole. But none of the variables were showed a significant reason to whether or not they will be predictive. 
+
+
+### Task 3, Creating a Logistic Regression
+```{r}
+parole_model = 
+  logistic_reg(mode = "classification") %>% #note the use of logistic_reg and mode = "classification"
+  set_engine("glm") #standard logistic regression engine is glm
+
+parole_recipe = recipe(violator ~ race, train)
+
+logreg_wf = workflow() %>%
+  add_recipe(parole_recipe) %>% 
+  add_model(parole_model)
+
+parole_fit = fit(logreg_wf, train)
+```
+
+```{r}
+summary(parole_fit$fit$fit$fit)
+```
+AIC of 367.83. RaceNo as in Other race does not seem very significant. 
+
+### Task 4
+```{r}
+parole_model = 
+  logistic_reg(mode = "classification") %>% #note the use of logistic_reg and mode = "classification"
+  set_engine("glm") #standard logistic regression engine is glm
+
+parole_recipe = recipe(violator ~ state + multiple.offenses, train)
+
+logreg_wf = workflow() %>%
+  add_recipe(parole_recipe) %>% 
+  add_model(parole_model)
+
+parole_fit2 = fit(logreg_wf, train)
+```
+
+```{r}
+summary(parole_fit2$fit$fit$fit)
+```
+The state of Virginia was more significant than I thought at first. Multiple offenses was also more significant than I first believed.   
+
+### Task 5
+```{r}
+parole_model = 
+  logistic_reg(mode = "classification") %>% 
+  set_engine("glm") 
+
+parole_recipe = recipe(violator ~ state + multiple.offenses + race, train)
+
+logreg_wf = workflow() %>%
+  add_recipe(parole_recipe) %>% 
+  add_model(parole_model)
+
+parole_fit3 = fit(logreg_wf, train)
+```
+
+```{r}
+summary(parole_fit3$fit$fit$fit)
+```
+The quality of this model is about the same as the model I created prior. The AIC became larger but by a very very small amount. RaceNo (other) is not significant as well as State Louisiana and State Kentucky. 
+
+### Task 6
+```{r Parolee 1}
+newdata = data.frame(state = "Louisiana", multiple.offenses = "incarcerated-multiple", race = "Yes")
+predict(parole_fit3, newdata, type="prob")
+```
+55% completed with no violation and 44% probability that they violated parole.
+
+```{r Parolee 2}
+newdata = data.frame(state = "Kentucky", multiple.offenses = "otherwise", race = "No")
+predict(parole_fit3, newdata, type="prob")
+```
+84% completed with no violation and 15% violated parole.  
+
+### Task 7
+```{r}
+predictions = predict(parole_fit3, train, type="prob")[2] #develop predicted probabilities
+#head(predictions)
+```
+```{r}
+ROCRpred = prediction(predictions, train$violator) 
+
+###You shouldn't need to ever change the next two lines:
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+```
+```{r}
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+### Task 8
+```{r}
+t4 = table(train$violator,predictions > 0.1070172)
+t4
+```
+```{r}
+(t4[1,1]+t4[2,2])/nrow(train)
+```
+The implications of incorrectly classifying a parolee are stereotyping the parolee into what you believe they are going to do. This is an unfair suggestion and could potentially implicate certain people to a longer parole time.   
+
+### Task 9
+```{r}
+t4 = table(train$violator,predictions > 0.5)
+(t4[1,1]+t4[2,2])/nrow(train)
+```
+A default value of .5 predicts an accuracy of .88.
+
+```{r}
+t4 = table(train$violator,predictions > 0.4)
+(t4[1,1]+t4[2,2])/nrow(train)
+```
+A .5 value gives the highest accuracy rate. 
+
+### Task 10
+```{r}
+predictions = predict(parole_fit3, test, type="prob")[2] 
+ROCRpred = prediction(predictions, test$violator) 
+
+
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+as.numeric(performance(ROCRpred, "auc")@y.values)
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+```{r}
+t5 = table(test$violator,predictions > 0.5)
+(t5[1,1]+t5[2,2])/nrow(test)
+```
+
